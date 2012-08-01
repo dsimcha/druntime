@@ -394,12 +394,21 @@ class GC
         scope(exit) gcLock.unlock();
         return go();
     }
+    
+    void setPointerBitmap(void* p, Pool* pool, size_t s, const TypeInfo ti)
+    {
+	size_t offset = p-pool;
+//	if (!ti) 
+	    pool.is_pointer.setRange(offset/(void*).sizeof, s/(void*).sizeof, true);
+//	else 
+//	    pool.is_pointer.copyRange(ti.RTInfo.p, offset/(void*).sizeof, ti.RTInfo.len, s/(void*).sizeof);
+    }
 
 
     /**
      *
      */
-    void *malloc(size_t size, uint bits = 0, size_t *alloc_size = null)
+    void *malloc(size_t size, uint bits = 0, size_t *alloc_size = null, const TypeInfo ti = null)
     {
         if (!size)
         {
@@ -418,7 +427,7 @@ class GC
         {
             gcLock.lock();
             scope(exit) gcLock.unlock();
-            p = mallocNoSync(size, bits, alloc_size);
+            p = mallocNoSync(size, bits, alloc_size, ti);
         }
 
         if (!(bits & BlkAttr.NO_SCAN))
@@ -433,7 +442,7 @@ class GC
     //
     //
     //
-    private void *mallocNoSync(size_t size, uint bits = 0, size_t *alloc_size = null)
+    private void *mallocNoSync(size_t size, uint bits = 0, size_t *alloc_size = null, const TypeInfo ti = null)
     {
         assert(size != 0);
 
@@ -513,6 +522,7 @@ class GC
         {
             gcx.setBits(pool, cast(size_t)(p - pool.baseAddr) >> pool.shiftBy, bits);
         }
+	setPointerBitmap(p, pool, size, ti);
         return p;
     }
 
@@ -520,7 +530,7 @@ class GC
     /**
      *
      */
-    void *calloc(size_t size, uint bits = 0, size_t *alloc_size = null)
+    void *calloc(size_t size, uint bits = 0, size_t *alloc_size = null, const TypeInfo ti = null)
     {
         if (!size)
         {
@@ -539,7 +549,7 @@ class GC
         {
             gcLock.lock();
             scope(exit) gcLock.unlock();
-            p = mallocNoSync(size, bits, alloc_size);
+            p = mallocNoSync(size, bits, alloc_size, ti);
         }
 
         memset(p, 0, size);
@@ -554,7 +564,7 @@ class GC
     /**
      *
      */
-    void *realloc(void *p, size_t size, uint bits = 0, size_t *alloc_size = null)
+    void *realloc(void *p, size_t size, uint bits = 0, size_t *alloc_size = null, const TypeInfo ti = null)
     {
         size_t localAllocSize = void;
         auto oldp = p;
@@ -566,7 +576,7 @@ class GC
         {
             gcLock.lock();
             scope(exit) gcLock.unlock();
-            p = reallocNoSync(p, size, bits, alloc_size);
+            p = reallocNoSync(p, size, bits, alloc_size, ti);
         }
 
         if (p !is oldp && !(bits & BlkAttr.NO_SCAN))
@@ -581,7 +591,7 @@ class GC
     //
     //
     //
-    private void *reallocNoSync(void *p, size_t size, uint bits = 0, size_t *alloc_size = null)
+    private void *reallocNoSync(void *p, size_t size, uint bits = 0, size_t *alloc_size = null, const TypeInfo ti = null)
     {
         if (gcx.running)
             onInvalidMemoryOperationError();
@@ -596,7 +606,7 @@ class GC
         }
         else if (!p)
         {
-            p = mallocNoSync(size, bits, alloc_size);
+            p = mallocNoSync(size, bits, alloc_size, ti);
         }
         else
         {   void *p2;
@@ -628,7 +638,7 @@ class GC
                             }
                         }
                     }
-                    p2 = mallocNoSync(size, bits, alloc_size);
+                    p2 = mallocNoSync(size, bits, alloc_size, ti);
                     if (psize < size)
                         size = psize;
                     //debug(PRINTF) printf("\tcopying %d bytes\n",size);
@@ -643,10 +653,12 @@ class GC
                 {
                     auto psz = psize / PAGESIZE;
                     auto newsz = (size + PAGESIZE - 1) / PAGESIZE;
-                    if (newsz == psz)
-                        return p;
-
                     auto pool = gcx.findPool(p);
+		    if (newsz == psz)
+		    {
+			setPointerBitmap(p, pool, size, ti);
+                        return p;
+		    }
                     auto pagenum = (p - pool.baseAddr) / PAGESIZE;
 
                     if (newsz < psz)
@@ -660,6 +672,7 @@ class GC
                         }
                         if(alloc_size)
                             *alloc_size = newsz * PAGESIZE;
+			setPointerBitmap(p, pool, size, ti);
                         return p;
                     }
                     else if (pagenum + newsz <= pool.npages)
@@ -680,7 +693,9 @@ class GC
                                         *alloc_size = newsz * PAGESIZE;
                                     pool.freepages -= (newsz - psz);
                                     debug(PRINTF) printFreeInfo(pool);
-                                    return p;
+
+				    setPointerBitmap(p, pool, size, ti);
+				    return p;
                                 }
                                 if (i == pool.ncommitted)
                                 {
@@ -719,15 +734,21 @@ class GC
                             }
                         }
                     }
-                    p2 = mallocNoSync(size, bits, alloc_size);
+                    p2 = mallocNoSync(size, bits, alloc_size, ti);
                     if (psize < size)
                         size = psize;
                     //debug(PRINTF) printf("\tcopying %d bytes\n",size);
                     memcpy(p2, p, size);
                     p = p2;
                 }
-                else if(alloc_size)
-                    *alloc_size = psize;
+		else
+		{
+		    if(alloc_size)
+			*alloc_size = psize;
+		    Pool *pool = gcx.findPool(p);
+		    setPointerBitmap(p, pool, size, ti);
+		}
+
             }
         }
         return p;
@@ -743,7 +764,7 @@ class GC
      *  0 if could not extend p,
      *  total size of entire memory block if successful.
      */
-    size_t extend(void* p, size_t minsize, size_t maxsize)
+    size_t extend(void* p, size_t minsize, size_t maxsize, const TypeInfo ti = null)
     {
         gcLock.lock();
         scope(exit) gcLock.unlock();
@@ -754,7 +775,7 @@ class GC
     //
     //
     //
-    private size_t extendNoSync(void* p, size_t minsize, size_t maxsize)
+    private size_t extendNoSync(void* p, size_t minsize, size_t maxsize, const TypeInfo ti = null)
     in
     {
         assert(minsize <= maxsize);
@@ -819,6 +840,7 @@ class GC
             gcx.cached_size_val = (psz + sz) * PAGESIZE;
         if (p == gcx.cached_info_key)
             gcx.cached_info_val.size = (psz + sz) * PAGESIZE;
+	setPointerBitmap(p, pool, (psz+sz) * PAGESIZE, ti);
         return (psz + sz) * PAGESIZE;
     }
 
@@ -900,13 +922,15 @@ class GC
 
         gcx.clrBits(pool, biti, BlkAttr.ALL_BITS);
 
-        bin = cast(Bins)pool.pagetable[pagenum];
+	bin = cast(Bins)pool.pagetable[pagenum];
         if (bin == B_PAGE)              // if large alloc
         {   size_t npages;
 
             // Free pages
             npages = pool.bPageOffsets[pagenum];
             debug (MEMSTOMP) memset(p, 0xF2, npages * PAGESIZE);
+	    
+	    pool.is_pointer.setRange((p-pool.baseAddr)/(void*).sizeof,(npages* PAGESIZE)/(void*).sizeof, false); 
             pool.freePages(pagenum, npages);
         }
         else
@@ -915,7 +939,9 @@ class GC
 
             debug (MEMSTOMP) memset(p, 0xF2, binsize[bin]);
 
-            list.next = gcx.bucket[bin];
+	    pool.is_pointer.setRange((p-pool.baseAddr)/(void*).sizeof, binsize[bin]/(void*).sizeof, false); 
+            
+	    list.next = gcx.bucket[bin];
             list.pool = pool;
             gcx.bucket[bin] = list;
         }
@@ -3050,6 +3076,7 @@ struct Pool
     GCBits nointerior;  // interior pointers should be ignored.
                         // Only implemented for large object pools.
 
+    GCBits is_pointer;	// Per-word, not per-block like the rest of them
     size_t npages;
     size_t freepages;     // The number of pages not in use.
     size_t ncommitted;    // ncommitted <= npages
@@ -3098,6 +3125,7 @@ struct Pool
 
         mark.alloc(nbits);
         scan.alloc(nbits);
+	is_pointer.alloc(cast(size_t)poolsize/(void*).sizeof);
 
         // pagetable already keeps track of what's free for the large object
         // pool.
@@ -3159,6 +3187,7 @@ struct Pool
 
         mark.Dtor();
         scan.Dtor();
+	is_pointer.Dtor();
         if(isLargeObject)
         {
             nointerior.Dtor();
