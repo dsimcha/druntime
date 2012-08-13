@@ -28,6 +28,8 @@ MANIFEST= \
 	\
 	src\object_.d \
 	src\object.di \
+	src\rumptraits.di \
+	src\gctemplates.di \
 	\
 	src\core\atomic.d \
 	src\core\bitop.d \
@@ -389,6 +391,8 @@ IMPORTS=\
 
 COPY=\
 	$(IMPDIR)\object.di \
+	$(IMPDIR)\rumptraits.di \
+	$(IMPDIR)\gctemplates.di \
 	$(IMPDIR)\core\atomic.d \
 	$(IMPDIR)\core\bitop.d \
 	$(IMPDIR)\core\cpuid.d \
