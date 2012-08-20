@@ -229,6 +229,7 @@ MANIFEST= \
 
 SRCS= \
 	src\object_.d \
+	import\gctemplates.di \
 	\
 	src\core\atomic.d \
 	src\core\bitop.d \
@@ -382,6 +383,8 @@ DOCS=\
 IMPORTS=\
 	$(IMPDIR)\object.di \
 	$(IMPDIR)\core\sync\barrier.di \
+	$(IMPDIR)\gctemplates.di \
+	$(IMPDIR)\rumptraits.di \
 	$(IMPDIR)\core\sync\condition.di \
 	$(IMPDIR)\core\sync\config.di \
 	$(IMPDIR)\core\sync\exception.di \
