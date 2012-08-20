@@ -13,7 +13,7 @@
  *          http://www.boost.org/LICENSE_1_0.txt)
  */
 module rt.lifetime;
-debug = PRINTF;
+//debug = PRINTF;
 private
 {
     import core.stdc.stdlib;
